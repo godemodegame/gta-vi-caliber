@@ -15,6 +15,9 @@ const OCEAN_SCRIPT := preload("res://scripts/world/ocean.gd")
 @export var coastline_width_m: float = 54.0
 @export var road_width_m: float = 18.0
 @export var wetland_count: int = 150
+@export var build_ocean: bool = true
+@export var build_causeway_traffic: bool = true
+@export var build_imported_prop_packs: bool = true
 
 var _land_mat: Material
 var _sand_mat: Material
@@ -44,8 +47,10 @@ var _threejs: FloridaThreeJsPlacements
 func _ready() -> void:
 	_make_materials()
 	_landmarks = FloridaLandmarks.new(self)
-	_threejs = FloridaThreeJsPlacements.new(self)
-	_build_water()
+	if build_imported_prop_packs:
+		_threejs = FloridaThreeJsPlacements.new(self)
+	if build_ocean:
+		_build_water()
 	_build_land()
 	_build_key_islands()
 	_build_coastline()
@@ -55,21 +60,23 @@ func _ready() -> void:
 	_build_marinas()
 	_build_beach_resorts()
 	_build_landmarks()
-	_threejs.build_landmark_models()
-	_threejs.build_city_blocks()
-	_threejs.build_neon_details()
-	_threejs.build_regional_destinations()
-	_threejs.build_infrastructure_details()
-	_threejs.build_environment_details()
-	_threejs.build_traffic_marine_details()
-	_threejs.build_vista_details()
-	_threejs.build_streetlife_details()
+	if build_imported_prop_packs:
+		_threejs.build_landmark_models()
+		_threejs.build_city_blocks()
+		_threejs.build_neon_details()
+		_threejs.build_regional_destinations()
+		_threejs.build_infrastructure_details()
+		_threejs.build_environment_details()
+		_threejs.build_traffic_marine_details()
+		_threejs.build_vista_details()
+		_threejs.build_streetlife_details()
 	_build_city_accents()
 	_build_map_markers()
 	_build_wetlands()
 	_build_coastal_palms()
 	_build_clouds()
-	_build_bay_boats()
+	if build_ocean:
+		_build_bay_boats()
 	_build_seabirds()
 	_build_ad_blimp()
 	_build_air_banner()
@@ -80,8 +87,10 @@ func _ready() -> void:
 	_build_neon_strip()
 	_build_neon_pylon()
 	_build_searchlights()
-	_build_causeway_traffic()
-	_build_swim_volume()
+	if build_causeway_traffic:
+		_build_causeway_traffic()
+	if build_ocean:
+		_build_swim_volume()
 
 
 func _make_materials() -> void:

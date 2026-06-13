@@ -5,33 +5,15 @@ extends RefCounted
 ## Keeps authored asset placement out of FloridaBackdrop so the main builder
 ## remains within the repo's per-file lint budget.
 
-const THREE_FLORIDA_LANDMARK_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_landmark_pack.glb"
-)
-const THREE_FLORIDA_CITY_BLOCK_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_city_block_pack.glb"
-)
-const THREE_FLORIDA_NEON_DETAIL_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_neon_detail_pack.glb"
-)
-const THREE_FLORIDA_REGIONAL_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_regional_pack.glb"
-)
-const THREE_FLORIDA_INFRASTRUCTURE_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_infrastructure_pack.glb"
-)
-const THREE_FLORIDA_ENVIRONMENT_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_environment_pack.glb"
-)
-const THREE_FLORIDA_TRAFFIC_MARINE_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_traffic_marine_pack.glb"
-)
-const THREE_FLORIDA_VISTA_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_vista_pack.glb"
-)
-const THREE_FLORIDA_STREETLIFE_PACK: PackedScene = preload(
-	"res://assets/buildings/florida_streetlife_pack.glb"
-)
+const THREE_FLORIDA_LANDMARK_PACK := "res://assets/buildings/florida_landmark_pack.glb"
+const THREE_FLORIDA_CITY_BLOCK_PACK := "res://assets/buildings/florida_city_block_pack.glb"
+const THREE_FLORIDA_NEON_DETAIL_PACK := "res://assets/buildings/florida_neon_detail_pack.glb"
+const THREE_FLORIDA_REGIONAL_PACK := "res://assets/buildings/florida_regional_pack.glb"
+const THREE_FLORIDA_INFRASTRUCTURE_PACK := "res://assets/buildings/florida_infrastructure_pack.glb"
+const THREE_FLORIDA_ENVIRONMENT_PACK := "res://assets/buildings/florida_environment_pack.glb"
+const THREE_FLORIDA_TRAFFIC_MARINE_PACK := "res://assets/buildings/florida_traffic_marine_pack.glb"
+const THREE_FLORIDA_VISTA_PACK := "res://assets/buildings/florida_vista_pack.glb"
+const THREE_FLORIDA_STREETLIFE_PACK := "res://assets/buildings/florida_streetlife_pack.glb"
 
 var _b: FloridaBackdrop
 
@@ -381,8 +363,12 @@ func build_streetlife_details() -> void:
 
 
 func _place_pack(
-	root_name: String, scene: PackedScene, placements: Array, y_offset: float
+	root_name: String, scene_path: String, placements: Array, y_offset: float
 ) -> Array[Node3D]:
+	var scene := load(scene_path) as PackedScene
+	if scene == null:
+		push_error("FloridaThreeJsPlacements: could not load %s" % scene_path)
+		return []
 	var root := Node3D.new()
 	root.name = root_name
 	_b.add_child(root)

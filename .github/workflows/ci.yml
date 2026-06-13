@@ -25,12 +25,17 @@ jobs:
         run: gdlint game/scripts game/tests
 
   game:
-    name: Import, smoke & unit tests (headless Godot)
+    name: Full game gate (headless Godot)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install gdtoolkit
+        run: pip install "gdtoolkit==4.*"
       - name: Cache Godot
         id: cache-godot
         uses: actions/cache@v4
@@ -46,12 +51,8 @@ jobs:
           unzip -q /tmp/godot.zip -d /tmp/godot
           mv "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" ~/godot-bin/godot
           chmod +x ~/godot-bin/godot
-      - name: Headless import
-        run: ~/godot-bin/godot --headless --path game --import
-      - name: Smoke test
-        run: ~/godot-bin/godot --headless --path game --script res://tests/smoke_test.gd
-      - name: gdUnit4 unit tests
-        run: ~/godot-bin/godot --headless --path game --script res://tests/run_tests.gd
+      - name: Run full game gate
+        run: GODOT=~/godot-bin/godot tools/check.sh
 
   engine:
     name: Engine modules (${{ matrix.platform }})

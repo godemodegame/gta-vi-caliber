@@ -2,12 +2,10 @@ class_name CoastalPropPlacements
 extends Node3D
 ## Instantiates the imported coastal set dressing around the playable spawn.
 
-const PROP_SCENES: Dictionary = {
-	CoastalPropLayout.PALM_PLANTER:
-	preload("res://assets/environment/coastal_props/palm_planter.glb"),
-	CoastalPropLayout.PALM_TREE: preload("res://assets/environment/coastal_props/palm_tree.glb"),
-	CoastalPropLayout.STREET_LAMP:
-	preload("res://assets/environment/coastal_props/street_lamp.glb"),
+const PROP_PATHS: Dictionary = {
+	CoastalPropLayout.PALM_PLANTER: "res://assets/environment/coastal_props/palm_planter.glb",
+	CoastalPropLayout.PALM_TREE: "res://assets/environment/coastal_props/palm_tree.glb",
+	CoastalPropLayout.STREET_LAMP: "res://assets/environment/coastal_props/street_lamp.glb",
 }
 
 
@@ -18,7 +16,7 @@ func _ready() -> void:
 
 func _add_prop(spec: Dictionary) -> void:
 	var kind: StringName = spec["kind"]
-	var packed := PROP_SCENES.get(kind) as PackedScene
+	var packed := load(String(PROP_PATHS.get(kind, ""))) as PackedScene
 	if packed == null:
 		push_error("CoastalPropPlacements: no scene for %s" % kind)
 		return

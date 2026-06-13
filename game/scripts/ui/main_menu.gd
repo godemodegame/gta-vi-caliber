@@ -9,6 +9,7 @@ extends Control
 
 ## World scene loaded when the player presses Play.
 const PLAY_SCENE: String = "res://scenes/world/miami.tscn"
+const BENCHMARK_SCENE: String = "res://scenes/tests/benchmark_runner.tscn"
 
 ## Seconds for the fade-to-black before the world loads.
 @export var fade_time: float = 0.6
@@ -26,6 +27,10 @@ var _starting: bool = false
 
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--benchmark"):
+		get_tree().call_deferred("change_scene_to_file", BENCHMARK_SCENE)
+		return
+
 	# Boot-time: honour saved audio/display settings immediately.
 	SettingsPanel.apply(SettingsPanel.load_settings(), get_tree())
 

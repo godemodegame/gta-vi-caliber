@@ -11,6 +11,7 @@ extends Node3D
 const DistrictLoaderScript := preload("res://scripts/world/district_loader.gd")
 
 @export_file("*.json") var manifest_path: String = "res://assets/world/districts.json"
+@export var streaming_enabled: bool = true
 @export var load_radius: float = 1600.0
 @export var unload_radius: float = 2400.0
 @export var update_interval: float = 0.5
@@ -22,6 +23,8 @@ var _accum: float = 0.0
 
 func _ready() -> void:
 	add_to_group("district_streamer")
+	if not streaming_enabled:
+		return
 	var manifest := _load(manifest_path)
 	for d in manifest.get("districts", []):
 		var off: Dictionary = d.get("world_offset", {"x": 0, "z": 0})

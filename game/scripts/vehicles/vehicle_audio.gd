@@ -30,6 +30,9 @@ var _prev_velocity: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
+	if DisplayServer.get_name() == "headless":
+		set_physics_process(false)
+		return
 	_engine = _make_player(VehicleAudioModel.engine_loop_frames(SAMPLE_RATE, BASE_FREQ), true)
 	_skid = _make_player(VehicleAudioModel.noise_loop_frames(SAMPLE_RATE, 0.7, 1234), true)
 	_impact = _make_player(VehicleAudioModel.noise_loop_frames(SAMPLE_RATE, 0.25, 99), false)
@@ -37,6 +40,13 @@ func _ready() -> void:
 	_skid.volume_db = VehicleAudioModel.SILENT_DB
 	_engine.play()
 	_skid.play()
+
+
+func _exit_tree() -> void:
+	for player in [_engine, _skid, _impact]:
+		if player != null:
+			player.stop()
+			player.stream = null
 
 
 func _physics_process(_delta: float) -> void:
