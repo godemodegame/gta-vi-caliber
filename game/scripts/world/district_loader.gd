@@ -11,12 +11,6 @@ extends Node3D
 
 signal district_built(building_count: int, road_count: int)
 
-## Streetlight pole every ~this many metres of road, capped scene-wide and
-## kept near the district origin (where the player spawns) so the cap is not
-## eaten by far-away roads.
-const STREETLIGHT_SPACING_M: float = 45.0
-const MAX_STREETLIGHTS: int = 60
-const STREETLIGHT_RADIUS_M: float = 250.0
 const STREET_VISUAL_Y: float = 0.32
 const SIDEWALK_VISUAL_Y: float = 0.28
 const GROUND_SURFACE_Y: float = 0.4
@@ -282,24 +276,22 @@ func _build_street_furniture(roads: Array, proj: GeoProjection) -> void:
 			var prop := Node3D.new()
 			prop.position = Vector3(p.x, 0.0, p.y)
 			if rng.randf() < 0.85:
-				_add_mesh(prop, bin_mesh, Vector3(0.0, 0.33, 0.0), bin_mat, 120.0)
+				_add_mesh(prop, bin_mesh, Vector3(0.0, 0.33, 0.0), bin_mat)
 			else:
-				_add_mesh(prop, hydrant_mesh, Vector3(0.0, 0.21, 0.0), hydrant_mat, 120.0)
-				_add_mesh(prop, hydrant_cap, Vector3(0.0, 0.42, 0.0), hydrant_mat, 120.0)
+				_add_mesh(prop, hydrant_mesh, Vector3(0.0, 0.21, 0.0), hydrant_mat)
+				_add_mesh(prop, hydrant_cap, Vector3(0.0, 0.42, 0.0), hydrant_mat)
 			container.add_child(prop)
 			placed += 1
 	VisibilityRange.apply_to_tree(container, 120.0)
 
 
-func _add_mesh(
-	parent: Node, mesh: Mesh, pos: Vector3, mat: Material, visibility_end: float = 0.0
-) -> void:
+func _add_mesh(parent: Node, mesh: Mesh, pos: Vector3, mat: Material) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = mat
 	mi.position = pos
-	if visibility_end > 0.0:
-		mi.visibility_range_end = visibility_end
+	mi.visibility_range_end = 120.0
+	mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	parent.add_child(mi)
 
 
@@ -342,12 +334,14 @@ func _build_trees(roads: Array, proj: GeoProjection) -> void:
 			trunk.mesh = trunk_mesh
 			trunk.material_override = bark
 			trunk.visibility_range_end = 300.0
+			trunk.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 			tree.add_child(trunk)
 			var crown := MeshInstance3D.new()
 			crown.mesh = canopy_mesh
 			crown.material_override = leaf
 			crown.position = Vector3(0.0, 3.9, 0.0)
 			crown.visibility_range_end = 300.0
+			crown.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 			tree.add_child(crown)
 			container.add_child(tree)
 			placed += 1
@@ -536,11 +530,13 @@ func _build_streetlights(roads: Array, proj: GeoProjection) -> void:
 			pole.material_override = pole_mat
 			pole.position = Vector3(0.0, 2.5, 0.0)
 			pole.visibility_range_end = 200.0
+			pole.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 			lamp.add_child(pole)
 			var head := MeshInstance3D.new()
 			head.mesh = head_mesh
 			head.material_override = lamp_mat
 			head.visibility_range_end = 200.0
+			head.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 			head.position = Vector3(0.0, 5.0, 0.0)
 			lamp.add_child(head)
 			container.add_child(lamp)
