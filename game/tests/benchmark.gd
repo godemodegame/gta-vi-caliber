@@ -1,144 +1,362 @@
-extends SceneTree
-## Deterministic rendering benchmark (M3): flies a fixed camera path over the
-## downtown district and captures frame statistics. Needs a renderer — run
-## WITHOUT --headless:
-##   godot --path game --script res://tests/benchmark.gd
-## Results: printed + written to /tmp/gta6_benchmark.md for docs/profiles/.
+extends Node
+## Deterministic Phase 0 performance harness. The launcher pins the release
+## build, scene, resolution, quality, AA, VSync, time of day, route, and seed.
+## Results are written as a reviewable Markdown profile.
 
-const SCENE := "res://scenes/world/miami.tscn"
-const OUT_PATH := "/tmp/gta6_benchmark.md"
-const WARMUP_FRAMES := 120
-const MEASURE_FRAMES := 900
-## Two laps: a high orbit taking in the whole district, then a low street pass.
-const HIGH_RADIUS := 350.0
-const HIGH_ALTITUDE := 150.0
-const LOW_RADIUS := 120.0
-const LOW_ALTITUDE := 12.0
+const ROUTE_NAME := "miami_district_loop_v1"
 
-var _frame := 0
-var _warmed := false
+var _config: BenchmarkConfig
+var _scene: Node
 var _camera: Camera3D
-var _frame_times: PackedFloat32Array = []
-var _render_cpu_ms: PackedFloat32Array = []
-var _render_gpu_ms: PackedFloat32Array = []
-var _draw_calls_peak := 0.0
-var _quality_tier := GraphicsQuality.DEFAULT_TIER
-var _quality_profile: Dictionary = {}
+var _player: Node3D
+var _streamer: Node
+var _route_points := PackedVector3Array(
+	[
+		Vector3(172.7, 120.0, -193.5),
+		Vector3(-156.4, 42.0, 1239.0),
+		Vector3(5899.7, 75.0, -715.8),
+		Vector3(6453.3, 125.0, -4702.2),
+		Vector3(-504.3, 65.0, -3364.1),
+		Vector3(172.7, 42.0, -193.5),
+	]
+)
+var _startup_started_usec: int = 0
+var _startup_ms: float = 0.0
+var _phase: int = 0
+var _frame: int = 0
+var _last_resident_signature: String = ""
+var _streaming_events: int = 0
+var _streaming_hitch_ms: float = 0.0
+
+var _wall_ms := PackedFloat64Array()
+var _render_cpu_ms := PackedFloat64Array()
+var _render_gpu_ms := PackedFloat64Array()
+var _physics_ms := PackedFloat64Array()
+var _script_residual_ms := PackedFloat64Array()
+var _draw_calls := PackedFloat64Array()
+var _primitives := PackedFloat64Array()
+var _objects := PackedFloat64Array()
+var _vram_bytes := PackedFloat64Array()
 
 
-func _initialize() -> void:
-	_quality_tier = GraphicsQuality.resolved_tier()
-	_quality_profile = GraphicsQuality.profile(_quality_tier)
-	GraphicsQuality.apply_to_tree(_quality_tier, self)
-	change_scene_to_file(SCENE)
+func _ready() -> void:
+	_startup_started_usec = Time.get_ticks_usec()
+	_config = BenchmarkConfig.from_environment()
+	if _config.require_release and (OS.has_feature("editor") or OS.has_feature("debug")):
+		push_error("benchmark: BENCHMARK_REQUIRE_RELEASE=1 but this is not a release export")
+		get_tree().quit(1)
+		return
+
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(_config.resolution)
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
+
+	var packed := load(_config.scene_path) as PackedScene
+	if packed == null:
+		push_error("benchmark: failed to load %s" % _config.scene_path)
+		get_tree().quit(1)
+		return
+	_scene = packed.instantiate()
+	_config.apply_before_ready(_scene)
+	add_child(_scene)
+	_apply_render_settings()
+	_mount_camera()
+	_phase = 1
 
 
-func _process(delta: float) -> bool:
-	_frame += 1
-	if not _warmed:
-		if _frame == 2:
-			_mount_camera()
-		if _frame >= WARMUP_FRAMES:
-			_warmed = true
+func _process(delta: float) -> void:
+	if _phase == 1:
+		if _startup_ms == 0.0:
+			_startup_ms = float(Time.get_ticks_usec() - _startup_started_usec) / 1000.0
+			print(
+				(
+					"benchmark: startup %.2f ms; warmup %d frames; measure %d frames"
+					% [_startup_ms, _config.warmup_frames, _config.measure_frames]
+				)
+			)
+		_move_route(_frame, _config.warmup_frames)
+		_frame += 1
+		if _frame >= _config.warmup_frames:
+			_phase = 2
 			_frame = 0
-		return false
+			_last_resident_signature = _resident_signature()
+		return
 
-	_fly(_frame)
-	_frame_times.append(delta)
-	var vp := root.get_viewport_rid()
-	_render_cpu_ms.append(RenderingServer.viewport_get_measured_render_time_cpu(vp))
-	_render_gpu_ms.append(RenderingServer.viewport_get_measured_render_time_gpu(vp))
-	_draw_calls_peak = maxf(
-		_draw_calls_peak, Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
-	)
-	if _frame >= MEASURE_FRAMES:
-		_report()
-		quit(0)
-		return true
-	return false
+	if _phase == 2:
+		_move_route(_frame, _config.measure_frames)
+		_capture_sample(delta)
+		_frame += 1
+		if _frame >= _config.measure_frames:
+			_report()
+			_cleanup_and_quit(0)
+			return
+
+
+func _apply_render_settings() -> void:
+	var root_viewport := get_tree().root
+	# Apply shared graphics quality profile (render scale, shadows, lod, etc).
+	# GTA_QUALITY env (set by launchers) drives resolved_tier for consistency with
+	# directors and live systems. AA/quality strings from benchmark config are still
+	# honored for the report and post-proc gating; profile provides the baseline.
+	var q := GraphicsQuality.resolved_tier()
+	GraphicsQuality.apply_engine(q, root_viewport)
+
+	# AA overrides (profile standardizes on FSR2 path; these allow A/B if desired)
+	match _config.aa_mode:
+		"taa":
+			root_viewport.use_taa = true
+		"msaa2":
+			root_viewport.msaa_3d = Viewport.MSAA_2X
+		"msaa4":
+			root_viewport.msaa_3d = Viewport.MSAA_4X
+		"fxaa":
+			root_viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+
+	var world_environment := _scene.find_child("WorldEnvironment", true, false) as WorldEnvironment
+	if world_environment != null and _config.is_enabled("post_processing"):
+		CinematicEnvironment.apply_quality(world_environment.environment, _config.quality_tier())
 
 
 func _mount_camera() -> void:
-	# macOS Metal presents vsynced regardless of VSYNC_DISABLED, so wall-clock
-	# deltas read as the refresh interval; the render server's measured CPU/GPU
-	# times below are the honest cost numbers.
-	RenderingServer.viewport_set_measure_render_time(root.get_viewport_rid(), true)
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	_camera = Camera3D.new()
-	_camera.far = 4000.0
-	current_scene.add_child(_camera)
+	_camera.name = "BenchmarkCamera"
+	_camera.far = 14_000.0
+	_scene.add_child(_camera)
 	_camera.current = true
+	_player = get_tree().get_first_node_in_group("player") as Node3D
+	if _player != null:
+		_player.process_mode = Node.PROCESS_MODE_DISABLED
+	_streamer = get_tree().get_first_node_in_group("district_streamer")
 
 
-func _fly(frame: int) -> void:
-	var half := MEASURE_FRAMES / 2
-	var low_pass := frame > half
-	var t := TAU * float(frame % half) / float(half)
-	var radius := LOW_RADIUS if low_pass else HIGH_RADIUS
-	var altitude := LOW_ALTITUDE if low_pass else HIGH_ALTITUDE
-	_camera.global_position = Vector3(cos(t) * radius, altitude, sin(t) * radius)
-	_camera.look_at(Vector3(0.0, altitude * 0.3, 0.0))
+func _move_route(frame: int, total_frames: int) -> void:
+	var route_progress := (
+		float(frame) / float(maxi(total_frames - 1, 1)) * float(_route_points.size() - 1)
+	)
+	var segment := mini(int(floor(route_progress)), _route_points.size() - 2)
+	var blend := route_progress - float(segment)
+	var position := _route_points[segment].lerp(_route_points[segment + 1], blend)
+	var route_direction := _route_points[segment + 1] - _route_points[segment]
+	route_direction.y = 0.0
+	route_direction = route_direction.normalized()
+	_camera.global_position = position
+	_camera.look_at(Vector3(position.x, 8.0, position.z) + route_direction * 100.0)
+	if _player != null:
+		_player.global_position = Vector3(position.x, 2.0, position.z)
+
+
+func _capture_sample(delta: float) -> void:
+	var viewport_rid := get_viewport().get_viewport_rid()
+	var wall := delta * 1000.0
+	var render_cpu := RenderingServer.viewport_get_measured_render_time_cpu(viewport_rid)
+	var render_gpu := RenderingServer.viewport_get_measured_render_time_gpu(viewport_rid)
+	var physics := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	var residual := maxf(wall - render_cpu - physics, 0.0)
+
+	_wall_ms.append(wall)
+	_render_cpu_ms.append(render_cpu)
+	_render_gpu_ms.append(render_gpu)
+	_physics_ms.append(physics)
+	_script_residual_ms.append(residual)
+	_draw_calls.append(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	_primitives.append(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+	_objects.append(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME))
+	_vram_bytes.append(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED))
+
+	var signature := _resident_signature()
+	if signature != _last_resident_signature:
+		_streaming_events += 1
+		_streaming_hitch_ms = maxf(_streaming_hitch_ms, wall)
+		_last_resident_signature = signature
+
+
+func _resident_signature() -> String:
+	if _streamer == null or not _streamer.has_method("resident_names"):
+		return ""
+	var names: Array = _streamer.call("resident_names")
+	names.sort()
+	var strings := PackedStringArray()
+	for name in names:
+		strings.append(String(name))
+	return ",".join(strings)
 
 
 func _report() -> void:
-	var sorted := _frame_times.duplicate()
-	sorted.sort()
-	var total := 0.0
-	for ft in sorted:
-		total += ft
-	var avg := total / sorted.size()
-	var p50 := sorted[int(sorted.size() * 0.50)]
-	var p95 := sorted[int(sorted.size() * 0.95)]
-	var p99 := sorted[int(sorted.size() * 0.99)]
-	var worst: float = sorted[sorted.size() - 1]
-	var cpu := _percentiles(_render_cpu_ms)
-	var gpu := _percentiles(_render_gpu_ms)
+	var wall := BenchmarkMetrics.summarize(_wall_ms)
+	var cpu := BenchmarkMetrics.summarize(_render_cpu_ms)
+	var gpu := BenchmarkMetrics.summarize(_render_gpu_ms)
+	var physics := BenchmarkMetrics.summarize(_physics_ms)
+	var script := BenchmarkMetrics.summarize(_script_residual_ms)
+	var draws := BenchmarkMetrics.summarize(_draw_calls)
+	var primitive_stats := BenchmarkMetrics.summarize(_primitives)
+	var object_stats := BenchmarkMetrics.summarize(_objects)
+	var build_type := _build_type()
+	var memory := OS.get_memory_info()
+	var ram_gb := float(memory.get("physical", 0)) / 1_073_741_824.0
 
 	var lines := PackedStringArray(
 		[
-			"| Metric | Value |",
-			"| --- | --- |",
-			"| Quality preset | %s |" % GraphicsQuality.tier_name(_quality_tier),
-			"| Render scale / AA | %.2f / FSR2 |" % float(_quality_profile["render_scale"]),
-			"| Frames measured | %d |" % sorted.size(),
-			"| Average | %.2f ms (%.0f FPS) |" % [avg * 1000.0, 1.0 / avg],
-			"| Median | %.2f ms (%.0f FPS) |" % [p50 * 1000.0, 1.0 / p50],
-			"| 95th percentile | %.2f ms (%.0f FPS) |" % [p95 * 1000.0, 1.0 / p95],
-			"| 99th percentile | %.2f ms (%.0f FPS) |" % [p99 * 1000.0, 1.0 / p99],
-			"| Worst frame | %.2f ms (%.0f FPS) |" % [worst * 1000.0, 1.0 / worst],
-			"| Render CPU p50 / p95 / worst | %.2f / %.2f / %.2f ms |" % [cpu[0], cpu[1], cpu[2]],
-			"| Render GPU p50 / p95 / worst | %.2f / %.2f / %.2f ms |" % [gpu[0], gpu[1], gpu[2]],
-			"| Peak draw calls/frame | %d |" % int(_draw_calls_peak),
+			"# Deterministic performance profile",
+			"",
+			"- **Commit:** `%s`" % _markdown(OS.get_environment("BENCHMARK_COMMIT")),
+			"- **Build:** %s" % build_type,
+			"- **Godot:** %s" % Engine.get_version_info().get("string", "unknown"),
+			"- **OS:** %s %s" % [OS.get_name(), OS.get_version()],
 			(
-				"| Video memory | %.0f MB |"
-				% (Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0)
+				"- **CPU:** %s (%d logical cores)"
+				% [OS.get_processor_name(), OS.get_processor_count()]
 			),
 			(
-				"| Objects in frame (last) | %d |"
-				% int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME))
+				"- **GPU:** %s %s"
+				% [
+					RenderingServer.get_video_adapter_vendor(),
+					RenderingServer.get_video_adapter_name()
+				]
 			),
+			"- **RAM:** %.1f GB" % ram_gb,
+			(
+				"- **Renderer:** %s / %s"
+				% [
+					RenderingServer.get_current_rendering_driver_name(),
+					RenderingServer.get_current_rendering_method()
+				]
+			),
+			"- **Scene:** `%s`" % _config.scene_path,
+			"- **Route:** `%s`" % ROUTE_NAME,
+			"- **Resolution:** %dx%d" % [_config.resolution.x, _config.resolution.y],
+			"- **Quality / AA:** %s / %s" % [_config.quality, _config.aa_mode],
+			"- **Time of day:** %.2f (cycle paused)" % _config.time_of_day,
+			"- **VSync requested / observed:** disabled / %s" % _vsync_name(),
+			(
+				"- **Warmup / measured frames:** %d / %d"
+				% [_config.warmup_frames, _config.measure_frames]
+			),
+			"- **Seed:** %d" % _config.random_seed,
+			"- **Command:** `%s`" % _markdown(OS.get_environment("BENCHMARK_COMMAND")),
+			"",
+			"## Subsystems",
+			"",
 		]
 	)
-	var body := "\n".join(lines)
-	_write(body)
-
-
-## [p50, p95, worst] of a series, in the series' own units.
-func _percentiles(series: PackedFloat32Array) -> PackedFloat32Array:
-	var sorted := series.duplicate()
-	sorted.sort()
-	return PackedFloat32Array(
-		[
-			sorted[int(sorted.size() * 0.50)],
-			sorted[int(sorted.size() * 0.95)],
-			sorted[sorted.size() - 1],
-		]
+	for subsystem in BenchmarkConfig.SUBSYSTEMS:
+		lines.append(
+			(
+				"- **%s:** %s"
+				% [
+					subsystem.replace("_", " ").capitalize(),
+					"on" if _config.is_enabled(subsystem) else "off"
+				]
+			)
+		)
+	(
+		lines
+		. append_array(
+			[
+				"",
+				"## Metrics",
+				"",
+				"| Metric | Value |",
+				"| --- | ---: |",
+				"| Startup to scene ready | %.2f ms |" % _startup_ms,
+				(
+					"| Average wall frame | %.2f ms / %.1f FPS |"
+					% [wall["mean"], _fps(float(wall["mean"]))]
+				),
+				"| Wall p50 | %.2f ms / %.1f FPS |" % [wall["p50"], _fps(float(wall["p50"]))],
+				"| Wall p95 | %.2f ms / %.1f FPS |" % [wall["p95"], _fps(float(wall["p95"]))],
+				"| Wall p99 | %.2f ms / %.1f FPS |" % [wall["p99"], _fps(float(wall["p99"]))],
+				(
+					"| Worst wall frame | %.2f ms / %.1f FPS |"
+					% [wall["worst"], _fps(float(wall["worst"]))]
+				),
+				"| 1%% low | %.1f FPS |" % BenchmarkMetrics.one_percent_low_fps(_wall_ms),
+				(
+					"| Render CPU p50 / p95 / p99 / worst | %.2f / %.2f / %.2f / %.2f ms |"
+					% [cpu["p50"], cpu["p95"], cpu["p99"], cpu["worst"]]
+				),
+				(
+					"| Render GPU p50 / p95 / p99 / worst | %.2f / %.2f / %.2f / %.2f ms |"
+					% [gpu["p50"], gpu["p95"], gpu["p99"], gpu["worst"]]
+				),
+				(
+					"| Physics p50 / p95 / p99 / worst | %.2f / %.2f / %.2f / %.2f ms |"
+					% [physics["p50"], physics["p95"], physics["p99"], physics["worst"]]
+				),
+				(
+					"| Script/main residual p50 / p95 / p99 / worst | %.2f / %.2f / %.2f / %.2f ms |"
+					% [script["p50"], script["p95"], script["p99"], script["worst"]]
+				),
+				(
+					"| Draw calls p50 / p95 / peak | %.0f / %.0f / %.0f |"
+					% [draws["p50"], draws["p95"], draws["worst"]]
+				),
+				(
+					"| Primitives p50 / p95 / peak | %.0f / %.0f / %.0f |"
+					% [primitive_stats["p50"], primitive_stats["p95"], primitive_stats["worst"]]
+				),
+				(
+					"| Objects p50 / p95 / peak | %.0f / %.0f / %.0f |"
+					% [object_stats["p50"], object_stats["p95"], object_stats["worst"]]
+				),
+				(
+					"| Peak video memory | %.0f MB |"
+					% (BenchmarkMetrics.peak(_vram_bytes) / 1_048_576.0)
+				),
+				(
+					"| Streaming hitch peak | %.2f ms (%d residency changes) |"
+					% [_streaming_hitch_ms, _streaming_events]
+				),
+				"",
+				"Script/main residual is an estimate: wall frame time minus measured render CPU and physics.",
+				"Zero GPU timings mean the active backend does not expose timestamps; they are not zero cost.",
+			]
+		)
 	)
-
-
-func _write(body: String) -> void:
+	var body := "\n".join(lines) + "\n"
 	print(body)
-	var f := FileAccess.open(OUT_PATH, FileAccess.WRITE)
-	if f != null:
-		f.store_string(body + "\n")
-		f.close()
-		print("benchmark: wrote %s" % OUT_PATH)
+	var file := FileAccess.open(_config.output_path, FileAccess.WRITE)
+	if file == null:
+		push_error("benchmark: could not write %s" % _config.output_path)
+		return
+	file.store_string(body)
+	file.close()
+	print("benchmark: wrote %s" % _config.output_path)
+
+
+func _build_type() -> String:
+	if OS.has_feature("editor"):
+		return "editor (non-release)"
+	if OS.has_feature("debug"):
+		return "debug export"
+	return "release export"
+
+
+func _vsync_name() -> String:
+	match DisplayServer.window_get_vsync_mode():
+		DisplayServer.VSYNC_ENABLED:
+			return "enabled"
+		DisplayServer.VSYNC_ADAPTIVE:
+			return "adaptive"
+		DisplayServer.VSYNC_MAILBOX:
+			return "mailbox"
+		_:
+			return "disabled"
+
+
+static func _fps(frame_ms: float) -> float:
+	return 1000.0 / frame_ms if frame_ms > 0.0 else 0.0
+
+
+static func _markdown(value: String) -> String:
+	return value.replace("|", "\\|").replace("`", "'")
+
+
+func _cleanup_and_quit(status: int) -> void:
+	_phase = 3
+	if _scene != null:
+		_scene.queue_free()
+		_scene = null
+	var timer := get_tree().create_timer(0.25)
+	timer.timeout.connect(func() -> void: get_tree().quit(status))

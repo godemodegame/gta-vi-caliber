@@ -39,6 +39,8 @@ extends Node3D
 @export var max_walkable_rise: float = 2.5
 @export_flags_3d_physics var ground_mask: int = 1
 @export var road_surface_y: float = 0.32
+## Zero randomizes for normal play; benchmarks set a stable non-zero seed.
+@export var random_seed: int = 0
 var nav: NavGrid = null
 
 var _cars: Array[TrafficCar] = []
@@ -48,7 +50,10 @@ var _base_target_count: int = -1
 
 
 func _ready() -> void:
-	_rng.randomize()
+	if random_seed == 0:
+		_rng.randomize()
+	else:
+		_rng.seed = random_seed
 	add_to_group("graphics_quality_aware")
 	apply_graphics_quality(GraphicsQuality.resolved_tier())
 

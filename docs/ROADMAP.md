@@ -101,6 +101,9 @@ Goal: the acceptance test — a 90-second in-engine trailer from a release build
 - [ ] Crowd density pass (**`engine/`: GPU-driven crowd rendering**)
 - [x] Cinematic camera tooling for capture
 - [ ] Performance lockdown: 60 FPS @ 1080p mid-range GPU, captured profiles
+  - [x] Phase 0 deterministic release harness, strict runtime gate, and working
+    visibility-range culling ([#53](https://github.com/duolahypercho/gta-vi-caliber/issues/53))
+  - [ ] Capture the Phase 0 baseline on RTX 3060-class target hardware
 - [ ] Cut, score, and publish the trailer
 
 ---

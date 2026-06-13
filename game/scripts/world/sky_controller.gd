@@ -15,6 +15,9 @@ extends Node
 ## Real seconds for one full in-game day. 0 freezes time at `time_of_day`.
 @export var day_length_seconds: float = 1200.0
 
+## Allows deterministic benchmarks to isolate the cost of all key-light shadows.
+@export var shadows_enabled: bool = true
+
 ## The world's key light. Its basis is reoriented to point along the sun ray.
 @export var sun_light: DirectionalLight3D
 
@@ -101,13 +104,13 @@ func _orient_sun(sun_dir: Vector3, tod: float) -> void:
 		_aim_light(sun_light, -sun_dir)
 		sun_light.light_color = SkyModel.light_color(tod)
 		sun_light.light_energy = SkyModel.light_energy(tod)
-		sun_light.shadow_enabled = SkyModel.is_sun_up(tod)
+		sun_light.shadow_enabled = shadows_enabled and SkyModel.is_sun_up(tod)
 	if moon_light != null:
 		var moon_dir := SkyModel.moon_direction(tod)
 		_aim_light(moon_light, -moon_dir)
 		var night := SkyModel.night_amount(tod)
 		moon_light.light_energy = SkyModel.MOON_ENERGY * night
-		moon_light.shadow_enabled = night > 0.5 and moon_dir.y > 0.0
+		moon_light.shadow_enabled = shadows_enabled and night > 0.5 and moon_dir.y > 0.0
 
 
 ## Point a light's -Z down `forward`, keeping a stable up vector unless `forward`

@@ -54,6 +54,8 @@ extends Node3D
 ## Candidate spawn offsets to try per ped when a nav grid is set, before giving
 ## up for this tick — keeps peds out of buildings/water without busy-looping.
 @export var walkable_attempts: int = 8
+## Zero randomizes for normal play; benchmarks set a stable non-zero seed.
+@export var random_seed: int = 0
 
 ## Auto-build a walkability map from the physics world the first time the crowd
 ## ticks: a coarse grid is raycast straight down and any cell whose ground is
@@ -85,7 +87,10 @@ var _scene_load_failed: bool = false
 
 
 func _ready() -> void:
-	_rng.randomize()
+	if random_seed == 0:
+		_rng.randomize()
+	else:
+		_rng.seed = random_seed
 	add_to_group("graphics_quality_aware")
 	apply_graphics_quality(GraphicsQuality.resolved_tier())
 

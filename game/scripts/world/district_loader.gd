@@ -288,6 +288,7 @@ func _build_street_furniture(roads: Array, proj: GeoProjection) -> void:
 				_add_mesh(prop, hydrant_cap, Vector3(0.0, 0.42, 0.0), hydrant_mat, 120.0)
 			container.add_child(prop)
 			placed += 1
+	VisibilityRange.apply_to_tree(container, 120.0)
 
 
 func _add_mesh(
@@ -350,6 +351,7 @@ func _build_trees(roads: Array, proj: GeoProjection) -> void:
 			tree.add_child(crown)
 			container.add_child(tree)
 			placed += 1
+	VisibilityRange.apply_to_tree(container, 300.0)
 
 
 ## Palm-lined avenues — the signature Miami streetscape. Trunks and frond crowns
@@ -415,8 +417,7 @@ func _add_palm_layer(
 	mmi.name = node_name
 	mmi.multimesh = mm
 	mmi.material_override = mat
-	mmi.visibility_range_end = 300.0
-	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	VisibilityRange.apply_to_tree(mmi, 300.0)
 	add_child(mmi)
 
 
@@ -544,6 +545,7 @@ func _build_streetlights(roads: Array, proj: GeoProjection) -> void:
 			lamp.add_child(head)
 			container.add_child(lamp)
 			placed += 1
+	VisibilityRange.apply_to_tree(container, 200.0)
 
 
 func _load_district(path: String) -> Dictionary:

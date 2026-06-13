@@ -32,6 +32,33 @@ require() {
 step() { printf '\n==> %s\n' "$1"; }
 
 GD_DIRS=(game/scripts game/tests)
+LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gta-caliber-check.XXXXXX")"
+trap 'rm -rf "$LOG_DIR"' EXIT
+
+run_godot_checked() {
+    local label="$1"
+    shift
+    local log_file="$LOG_DIR/${label// /_}.log"
+    local status=0
+
+    set +e
+    "$@" 2>&1 | tee "$log_file"
+    status=${PIPESTATUS[0]}
+    set -e
+
+    if [[ "$status" -ne 0 ]]; then
+        echo "error: $label exited with status $status" >&2
+        return "$status"
+    fi
+    if grep -q 'SCRIPT ERROR:' "$log_file"; then
+        echo "error: $label emitted an unexpected SCRIPT ERROR" >&2
+        return 1
+    fi
+    if grep -q 'ObjectDB instances leaked at exit' "$log_file"; then
+        echo "error: $label leaked ObjectDB instances" >&2
+        return 1
+    fi
+}
 
 # `python3 -m pip install --user gdtoolkit` puts gdformat/gdlint in the
 # Python user script directory, which is not always on PATH in non-login shells.
@@ -86,17 +113,17 @@ fi
 
 # --- 3. headless import (validates project.godot, scenes, resources) ---------
 step "headless import"
-"$GODOT_BIN" --headless --path game --import
+run_godot_checked "headless import" "$GODOT_BIN" --headless --path game --import
 
 # --- 4. smoke test (main scene boots, player rig present) --------------------
 step "smoke test"
-"$GODOT_BIN" --headless --path game --script res://tests/smoke_test.gd
+run_godot_checked "smoke test" "$GODOT_BIN" --headless --path game --script res://tests/smoke_test.gd
 step "menu startup probe"
-"$GODOT_BIN" --headless --path game --script res://tests/menu_startup_probe.gd
+run_godot_checked "menu startup probe" "$GODOT_BIN" --headless --path game --script res://tests/menu_startup_probe.gd
 
 # --- 5. gdUnit4 unit tests ----------------------------------------------------
 step "gdUnit4 unit tests"
-"$GODOT_BIN" --headless --path game --script res://tests/run_tests.gd
+run_godot_checked "gdUnit4 unit tests" "$GODOT_BIN" --headless --path game --script res://tests/run_tests.gd
 
 # --- 6. playable-map integration probes --------------------------------------
 # Frame-stepped runtime checks the one-frame smoke test cannot make: the main
@@ -104,38 +131,38 @@ step "gdUnit4 unit tests"
 # GTA core loop fires (crime -> wanted -> police dispatch). These guard against
 # a scene edit silently unhooking the simulation.
 step "miami wiring probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_wiring_probe.gd
+run_godot_checked "miami wiring probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_wiring_probe.gd
 step "miami facade probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_facade_probe.gd
+run_godot_checked "miami facade probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_facade_probe.gd
 step "vehicle visual probe"
-"$GODOT_BIN" --headless --path game --script res://tests/vehicle_visual_probe.gd
+run_godot_checked "vehicle visual probe" "$GODOT_BIN" --headless --path game --script res://tests/vehicle_visual_probe.gd
 step "player ground probe"
-"$GODOT_BIN" --headless --path game --script res://tests/player_ground_probe.gd
+run_godot_checked "player ground probe" "$GODOT_BIN" --headless --path game --script res://tests/player_ground_probe.gd
 step "coastal asset probe"
-"$GODOT_BIN" --headless --path game --script res://tests/coastal_asset_probe.gd
+run_godot_checked "coastal asset probe" "$GODOT_BIN" --headless --path game --script res://tests/coastal_asset_probe.gd
 step "miami loop probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_loop_probe.gd
+run_godot_checked "miami loop probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_loop_probe.gd
 step "miami mission probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_mission_probe.gd
+run_godot_checked "miami mission probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_mission_probe.gd
 step "miami payspray probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_payspray_probe.gd
+run_godot_checked "miami payspray probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_payspray_probe.gd
 step "miami arrest probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_arrest_probe.gd
+run_godot_checked "miami arrest probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_arrest_probe.gd
 step "miami helicopter probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_helicopter_probe.gd
+run_godot_checked "miami helicopter probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_helicopter_probe.gd
 step "miami day-night probe"
-"$GODOT_BIN" --headless --path game --script res://tests/miami_day_night_probe.gd
+run_godot_checked "miami day-night probe" "$GODOT_BIN" --headless --path game --script res://tests/miami_day_night_probe.gd
 
 # --- 7. systems wiring probes (scene-free: self-wiring nodes in a mock tree) --
 step "market event probe"
-"$GODOT_BIN" --headless --path game --script res://tests/market_event_probe.gd
+run_godot_checked "market event probe" "$GODOT_BIN" --headless --path game --script res://tests/market_event_probe.gd
 step "crime reaction probe"
-"$GODOT_BIN" --headless --path game --script res://tests/crime_reaction_probe.gd
+run_godot_checked "crime reaction probe" "$GODOT_BIN" --headless --path game --script res://tests/crime_reaction_probe.gd
 step "character switch probe"
-"$GODOT_BIN" --headless --path game --script res://tests/character_switch_probe.gd
+run_godot_checked "character switch probe" "$GODOT_BIN" --headless --path game --script res://tests/character_switch_probe.gd
 step "ambient event probe"
-"$GODOT_BIN" --headless --path game --script res://tests/ambient_event_probe.gd
+run_godot_checked "ambient event probe" "$GODOT_BIN" --headless --path game --script res://tests/ambient_event_probe.gd
 step "systems integration probe"
-"$GODOT_BIN" --headless --path game --script res://tests/systems_integration_probe.gd
+run_godot_checked "systems integration probe" "$GODOT_BIN" --headless --path game --script res://tests/systems_integration_probe.gd
 
 printf '\nAll checks passed ✔\n'
