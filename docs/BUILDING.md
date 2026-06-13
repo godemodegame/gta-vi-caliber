@@ -23,9 +23,14 @@ Then either open `game/project.godot` in the Godot editor and press **F5**,
 or from the terminal:
 
 ```bash
+godot --headless --path game --import   # first run / after pulling new assets
 godot --path game        # run the game
 godot -e --path game     # open the editor
 ```
+
+The editor imports assets automatically, but a fresh CLI run does not import
+everything up front — run the one-time `--import` above so newly-added GLBs and
+textures are in the cache before the world loads.
 
 You should be standing on a sunlit ground plane, able to walk (WASD), sprint
 (Shift), jump (Space), and look around (mouse; Esc releases the cursor).
@@ -126,6 +131,11 @@ godot --headless --path game --script tests/run_tests.gd    # gdUnit4 unit tests
 
 - **Textures/models missing after clone** → you cloned without LFS. Run
   `git lfs install && git lfs pull`.
+- **Crash or `SCRIPT ERROR` spam right after the world loads** (e.g.
+  `set_phone` on a null instance, or a missing NPC/player `Rig`) → the import
+  cache is missing freshly-added character assets, so a GLB failed to load and
+  its rig is null. Run `godot --headless --path game --import` once (or open the
+  editor, which imports automatically), then run again.
 - **`godot: command not found` (macOS)** → the cask installs the app bundle;
   add an alias: `alias godot="/Applications/Godot.app/Contents/MacOS/Godot"`.
 - **Editor shows broken dependencies on first open** → let the import finish

@@ -41,6 +41,16 @@ func _ready() -> void:
 	_home = global_position
 	_hp = Damageable.new(max_health)
 	add_to_group("pedestrians")
+	if _rig == null:
+		# The $Rig (AnimatedRig) child failed to build — most often because a
+		# character GLB/texture has not been imported yet (run `godot --import`).
+		# Without it every locomotion call below would fault each physics frame,
+		# so go inert and warn once instead of spamming SCRIPT ERRORs.
+		push_warning(
+			"Pedestrian: missing $Rig; going inert. Run `godot --import` if assets are unimported."
+		)
+		set_physics_process(false)
+		return
 	_pick_new_target()
 
 
@@ -112,7 +122,7 @@ func _answer_call(delta: float) -> void:
 
 ## Duck-typed weapon target entry point.
 func take_damage(amount: float, point: Vector3, _normal: Vector3) -> void:
-	if _dead:
+	if _dead or _rig == null:
 		return
 	_threat_pos = point
 	_fear = fear_duration
