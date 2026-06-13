@@ -14,6 +14,7 @@ const DistrictLoaderScript := preload("res://scripts/world/district_loader.gd")
 @export var load_radius: float = 1600.0
 @export var unload_radius: float = 2400.0
 @export var update_interval: float = 0.5
+@export_range(1, 8, 1) var max_loads_per_update: int = 1
 
 var _districts: Array = []
 var _resident: Dictionary = {}
@@ -60,7 +61,8 @@ func _update() -> void:
 	var decision := Streaming.resolve(cam, _districts, load_radius, unload_radius, _resident)
 	for name in decision["to_unload"]:
 		_unload(name)
-	for name in decision["to_load"]:
+	var to_load: Array[String] = decision["to_load"]
+	for name in Streaming.load_batch(to_load, max_loads_per_update):
 		_load_district(name)
 
 

@@ -158,8 +158,8 @@ script = ExtResource("35_islands")
 
 [node name="Streamer" type="Node3D" parent="."]
 script = ExtResource("3_streamer")
-load_radius = 8500.0
-unload_radius = 9500.0
+load_radius = 1200.0
+unload_radius = 2200.0
 
 [node name="Weather" type="Node3D" parent="."]
 script = ExtResource("5_weather")
